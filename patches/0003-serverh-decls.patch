@@ -1,0 +1,17 @@
+--- redis-7.0.15/src/server.h	2024-01-09 19:51:41.000000000 +0800
++++ redis-build/src/server.h	2026-10-26 12:08:28.054401900 +0800
+@@ -3188,6 +3188,14 @@
+ int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+ 
+ unsigned short crc16(const char *buf, int len);
++#if defined(__aarch64__)
++void crc16_init(void);
++unsigned short crc16_fast(const char *buf, int len);
++#else
++/* Non-aarch64: the plain crc16() is the only implementation. */
++#define crc16_init() ((void)0)
++#define crc16_fast(buf, len) crc16((buf), (len))
++#endif
+ 
+ /* Sentinel */
+ void initSentinelConfig(void);

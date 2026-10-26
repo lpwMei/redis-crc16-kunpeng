@@ -1,0 +1,25 @@
+--- redis-7.0.15/src/crc16.c	2024-01-09 19:51:41.000000000 +0800
++++ redis-build/src/crc16.c	2026-10-26 12:08:10.252119800 +0800
+@@ -86,3 +86,22 @@
+             crc = (crc<<8) ^ crc16tab[((crc>>8) ^ *buf++)&0x00FF];
+     return crc;
+ }
++
++/* CRC16 XMODEM accelerated implementation for aarch64 (Kunpeng), see
++ * crc16_aarch64.c. crc16_init() probes hardware/ vendor once at startup;
++ * crc16_fast() dispatches between the accelerated path and the plain
++ * table loop above. Both paths are bit-exact for every (buf, len). */
++#if defined(__aarch64__)
++uint16_t crc16_aarch64_pmull(const char *buf, int len);
++int crc16_aarch64_init(void);
++static int crc16_fast_ok = 0;
++
++void crc16_init(void) {
++    crc16_fast_ok = crc16_aarch64_init();
++}
++
++uint16_t crc16_fast(const char *buf, int len) {
++    if (crc16_fast_ok) return crc16_aarch64_pmull(buf, len);
++    return crc16(buf, len);
++}
++#endif

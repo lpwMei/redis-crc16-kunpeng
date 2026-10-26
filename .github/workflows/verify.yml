@@ -1,0 +1,78 @@
+name: crc16-verify-and-bench
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  arm64:
+    # Public repositories get free aarch64 (ubuntu-24.04-arm) runners.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show host CPU
+        run: |
+          uname -a
+          grep -m1 -A1 'CPU implementer' /proc/cpuinfo || true
+          grep -m1 Features /proc/cpuinfo
+
+      - name: Build & run equivalence + micro-bench (relaxed vendor gate)
+        run: |
+          # REDIS_CRC16_ANY_PMULL_CPU=1 relaxes the Kunpeng-only vendor gate
+          # for CI (the runner is Ampere/Cobalt, not Kunpeng). Bit-exactness
+          # does not depend on the CPU vendor, only on PMULL semantics.
+          gcc -O2 -Wall -Wextra -march=armv8-a+crypto \
+              -o crc16_test verify/crc16_test.c src/crc16_aarch64.c
+          REDIS_CRC16_ANY_PMULL_CPU=1 ./crc16_test
+          REDIS_CRC16_ANY_PMULL_CPU=1 ./crc16_test bench | tee microbench.txt
+
+      - name: Build vanilla Redis 7.0.15
+        run: |
+          curl -sL http://download.redis.io/releases/redis-7.0.15.tar.gz -o redis.tar.gz
+          tar xzf redis.tar.gz
+          cd redis-7.0.15
+          make -j"$(nproc)" BUILD_TLS=no
+
+      - name: Apply CRC16 patch & build optimized Redis
+        run: |
+          cp -r redis-7.0.15 redis-opt
+          cd redis-opt
+          for p in ../patches/0*.patch; do patch -p1 --fuzz=3 < "$p" || exit 1; done
+          cp ../src/crc16_aarch64.c src/crc16_aarch64.c
+          make -j"$(nproc)" BUILD_TLS=no
+
+      - name: Correctness — patched server slot mapping equals vanilla
+        run: |
+          # Start a 3-node cluster with each build (ports 7100/7101/7102),
+          # issue 100k distinct keys through redis-cli --cluster-style
+          # CLUSTER KEYSLOT comparisons via a Lua-free driver: for each key,
+          # vanilla and patched servers must report the same slot.
+          python3 tests/slot_equiv_test.py \
+            --vanilla-bin redis-7.0.15/src/redis-server \
+            --patched-bin redis-opt/src/redis-server
+
+      - name: Benchmark — cluster GET, pipeline 16
+        run: |
+          # Same-machine, alternating runs (A B B A) to cancel drift.
+          # Requirement scenario: cluster-enabled server, plain benchmark
+          # client (no --cluster flag) -> server hashes the full 16-byte
+          # key "key:__rand_int__" through keyHashSlot on every command.
+          python3 tests/cluster_bench.py \
+            --vanilla-bin redis-7.0.15/src/redis-server \
+            --patched-bin redis-opt/src/redis-server \
+            --clients 50 --pipeline 16 --requests 2000000 --rounds 4 \
+            --bench-bin redis-7.0.15/src/redis-benchmark \
+            | tee clusterbench.txt
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crc16-results
+          path: |
+            microbench.txt
+            clusterbench.txt

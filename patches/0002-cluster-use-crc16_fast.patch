@@ -1,0 +1,24 @@
+--- redis-7.0.15/src/cluster.c	2024-01-09 19:51:41.000000000 +0800
++++ redis-build/src/cluster.c	2026-10-26 12:02:22.052191900 +0800
+@@ -943,18 +943,18 @@
+         if (key[s] == '{') break;
+ 
+     /* No '{' ? Hash the whole key. This is the base case. */
+-    if (s == keylen) return crc16(key,keylen) & 0x3FFF;
++    if (s == keylen) return crc16_fast(key,keylen) & 0x3FFF;
+ 
+     /* '{' found? Check if we have the corresponding '}'. */
+     for (e = s+1; e < keylen; e++)
+         if (key[e] == '}') break;
+ 
+     /* No '}' or nothing between {} ? Hash the whole key. */
+-    if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
++    if (e == keylen || e == s+1) return crc16_fast(key,keylen) & 0x3FFF;
+ 
+     /* If we are here there is both a { and a } on its right. Hash
+      * what is in the middle between { and }. */
+-    return crc16(key+s+1,e-s-1) & 0x3FFF;
++    return crc16_fast(key+s+1,e-s-1) & 0x3FFF;
+ }
+ 
+ /* -----------------------------------------------------------------------------

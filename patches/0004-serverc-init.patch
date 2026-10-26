@@ -1,0 +1,10 @@
+--- redis-7.0.15/src/server.c	2024-01-09 19:51:41.000000000 +0800
++++ redis-build/src/server.c	2026-10-26 12:02:36.989982800 +0800
+@@ -6913,6 +6913,7 @@
+     srandom(time(NULL)^getpid()^tv.tv_usec);
+     init_genrand64(((long long) tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
+     crc64_init();
++    crc16_init();
+ 
+     /* Store umask value. Because umask(2) only offers a set-and-get API we have
+      * to reset it and restore it back. We do this early to avoid a potential
