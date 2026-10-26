@@ -122,11 +122,11 @@ static int crc16_kunpeng_cpu(void) {
 }
 #endif
 
-/* Vendor gate override: environment variable checked once at init.
- * Set REDIS_CRC16_ANY_PMULL_CPU=1 to enable the accelerated path on any
- * PMULL-capable aarch64 CPU (used by the CI equivalence/perf runs, whose
- * runners are Ampere rather than Kunpeng). Normal builds stay Kunpeng-only.
- * Cannot be used to disable the path on Kunpeng (only to widen it). */
+/* Vendor gate: Huawei Kunpeng (HiSilicon implementer 0x48) by default.
+ * The environment variable REDIS_CRC16_ANY_PMULL_CPU=1 widens the gate to
+ * any PMULL-capable aarch64 CPU (used by CI validation on Ampere runners).
+ * It can only widen, never disable the path on Kunpeng. A build-time
+ * -DREDIS_CRC16_ANY_PMULL_CPU compiles the check away entirely. */
 static int crc16_vendor_ok(void) {
 #ifdef REDIS_CRC16_ANY_PMULL_CPU
     return 1;
@@ -134,8 +134,9 @@ static int crc16_vendor_ok(void) {
     static int checked = 0, allowed = 0;
     if (!checked) {
         const char *env = getenv("REDIS_CRC16_ANY_PMULL_CPU");
+        int widen = (env != NULL && env[0] == '1' && env[1] == '\0');
+        allowed = widen || crc16_kunpeng_cpu();
         checked = 1;
-        allowed = (env != NULL && env[0] == '1' && env[1] == '\0');
     }
     return allowed;
 #endif
