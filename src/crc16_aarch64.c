@@ -298,6 +298,30 @@ uint16_t crc16_aarch64_pmull(const char *buf, int len) {
     return crc16_pmull((const unsigned char *)buf, (size_t)len);
 }
 
+/* Vectorized '{' / '}' scanner for keyHashSlot(), semantically identical
+ * to the byte loop in cluster.c: find the first '{' within key[0,keylen),
+ * then the first '}' strictly after it. Returns the two indices via the
+ * out-parameters; *open_idx == keylen means "no '{' found" (hash the whole
+ * key), *close_idx == keylen means "no '}' / empty tag" (hash the whole
+ * key). Only called when the accelerated CRC16 path is active. */
+void crc16_aarch64_slot_scan(const char *key, int keylen,
+                             int *open_idx, int *close_idx) {
+    const unsigned char *k = (const unsigned char *)key;
+    size_t n = (size_t)keylen;
+    const unsigned char *first_open = memchr(k, '{', n);
+
+    *open_idx = *close_idx = keylen;
+    if (first_open == NULL) return;
+
+    size_t o = (size_t)(first_open - k);
+    *open_idx = (int)o;
+    if (o + 1 >= n) return;              /* '{' is the last byte: no '}' */
+
+    const unsigned char *close = memchr(k + o + 1, '}', n - o - 1);
+    if (close != NULL)
+        *close_idx = (int)(close - k);
+}
+
 #else /* !(__aarch64__ && __ARM_FEATURE_CRYPTO && little-endian) */
 
 /* Degraded build (no crypto extension at compile time): never activate.
@@ -309,6 +333,12 @@ int crc16_aarch64_init(void) {
 uint16_t crc16_aarch64_pmull(const char *buf, int len) {
     (void)buf; (void)len;
     return 0;
+}
+
+void crc16_aarch64_slot_scan(const char *key, int keylen,
+                             int *open_idx, int *close_idx) {
+    (void)key;
+    *open_idx = *close_idx = keylen;
 }
 
 #endif

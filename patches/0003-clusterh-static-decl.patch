@@ -1,0 +1,15 @@
+--- a/src/cluster.h	2024-01-09 19:51:41.000000000 +0800
++++ b/src/cluster.h	2026-10-26 14:32:15.065760000 +0800
+@@ -393,7 +393,12 @@
+ unsigned long getClusterConnectionsCount(void);
+ int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
+ void clusterPropagatePublish(robj *channel, robj *message, int sharded);
++#if defined(__aarch64__)
++/* aarch64: keyHashSlot() becomes static in cluster.c (fast-path variant);
++ * the external prototype is only meaningful for other builds. */
++#else
+ unsigned int keyHashSlot(char *key, int keylen);
++#endif
+ void slotToKeyAddEntry(dictEntry *entry, redisDb *db);
+ void slotToKeyDelEntry(dictEntry *entry, redisDb *db);
+ void slotToKeyReplaceEntry(dictEntry *entry, redisDb *db);

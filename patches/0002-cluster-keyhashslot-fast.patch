@@ -1,0 +1,58 @@
+--- a/src/cluster.c	2024-01-09 19:51:41.000000000 +0800
++++ b/src/cluster.c	2026-10-26 14:30:42.558423200 +0800
+@@ -936,6 +936,47 @@
+  * However if the key contains the {...} pattern, only the part between
+  * { and } is hashed. This may be useful in the future to force certain
+  * keys to be in the same node (assuming no resharding is in progress). */
++
++#if defined(__aarch64__)
++/* Fast '{'...'}' scan used when the accelerated CRC16 is active (see
++ * crc16_aarch64.c). Semantically identical to the byte loops below:
++ * *open_idx == keylen means no '{'; *close_idx == keylen means no '}'
++ * or an empty tag. Returns 0 when the accelerated path is inactive, in
++ * which case the caller uses the original loops. */
++int crc16_aarch64_slot_scan(const char *key, int keylen,
++                            int *open_idx, int *close_idx);
++int crc16_fast_active(void);
++
++static unsigned int keyHashSlot(char *key, int keylen) {
++    int s, e; /* start-end indexes of { and } */
++
++    if (crc16_fast_active() &&
++        crc16_aarch64_slot_scan(key, keylen, &s, &e)) {
++        /* No '{' ? Hash the whole key. This is the base case. */
++        if (s == keylen) return crc16_fast(key,keylen) & 0x3FFF;
++        /* No '}' or nothing between {} ? Hash the whole key. */
++        if (e == keylen || e == s+1) return crc16_fast(key,keylen) & 0x3FFF;
++        return crc16_fast(key+s+1,e-s-1) & 0x3FFF;
++    }
++
++    for (s = 0; s < keylen; s++)
++        if (key[s] == '{') break;
++
++    /* No '{' ? Hash the whole key. This is the base case. */
++    if (s == keylen) return crc16_fast(key,keylen) & 0x3FFF;
++
++    /* '{' found? Check if we have the corresponding '}'. */
++    for (e = s+1; e < keylen; e++)
++        if (key[e] == '}') break;
++
++    /* No '}' or nothing between {} ? Hash the whole key. */
++    if (e == keylen || e == s+1) return crc16_fast(key,keylen) & 0x3FFF;
++
++    /* If we are here there is both a { and a } on its right. Hash
++     * what is in the middle between { and }. */
++    return crc16_fast(key+s+1,e-s-1) & 0x3FFF;
++}
++#else
+ unsigned int keyHashSlot(char *key, int keylen) {
+     int s, e; /* start-end indexes of { and } */
+ 
+@@ -956,6 +997,7 @@
+      * what is in the middle between { and }. */
+     return crc16(key+s+1,e-s-1) & 0x3FFF;
+ }
++#endif
+ 
+ /* -----------------------------------------------------------------------------
+  * CLUSTER node API
